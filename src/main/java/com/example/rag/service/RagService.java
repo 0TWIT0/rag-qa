@@ -21,7 +21,9 @@ public class RagService {
 
     private static final String SYSTEM_PROMPT = "你是一个严谨的知识库问答助手。请只根据下面提供的资料回答问题，"
             + "不要编造资料中没有的内容。如果资料中没有相关信息，请直接回答“资料中没有相关信息”。"
-            + "回答时尽量引用来源（如“来源：xxx”）。";
+            + "回答时标注来源，写成「（来源：文件名）」。"
+            // 前端按纯文本渲染答案，模型若输出 Markdown 标记会原样露出星号和井号。
+            + "用纯文本回答，不要使用 Markdown 标记（如 **、#、- 等符号），也不要分点罗列。";
 
     private final VectorStoreService vectorStoreService;
     private final ChatClient chatClient;
@@ -46,13 +48,13 @@ public class RagService {
         return new AskResponse(question, answer, sources.size(), sources);
     }
 
-    /** 把 top-K 块拼成给模型看的参考资料。 */
+    /** 把 top-K 块拼成给模型看的参考资料。块号用 1 起，与前端「第 N 块」的显示保持一致。 */
     private String buildContext(List<SearchResult> sources) {
         StringBuilder sb = new StringBuilder();
         int no = 1;
         for (SearchResult s : sources) {
             sb.append("【资料 ").append(no++).append("】来源：").append(s.sourceName())
-                    .append("（块 ").append(s.index()).append("）\n")
+                    .append("（第 ").append(s.index() + 1).append(" 块）\n")
                     .append(s.text()).append("\n\n");
         }
         return sb.toString().trim();
