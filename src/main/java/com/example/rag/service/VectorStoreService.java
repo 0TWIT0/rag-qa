@@ -8,6 +8,7 @@ import java.util.Map;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import com.example.rag.document.Chunk;
@@ -25,8 +26,19 @@ public class VectorStoreService {
 
     private final VectorStore vectorStore;
 
-    public VectorStoreService(VectorStore vectorStore) {
+    /**
+     * 相似度阈值：低于它的检索结果一律丢弃。
+     *
+     * <p>没有这个阈值时，相似度检索**永远**会返回 top-K 条（哪怕全是硬凑的不相关文本），
+     * 于是「检索结果为空」就无法代表「没有相关内容」，上层的严格模式形同虚设。加了阈值后，
+     * 无关问题会得到空结果，严格模式才真正成立。</p>
+     */
+    private final double similarityThreshold;
+
+    public VectorStoreService(VectorStore vectorStore,
+                              @Value("${rag.similarity-threshold:0.35}") double similarityThreshold) {
         this.vectorStore = vectorStore;
+        this.similarityThreshold = similarityThreshold;
     }
 
     /** 将一批 chunk 向量化后入库（带上 documentId），返回实际入库数量。 */
@@ -62,11 +74,12 @@ public class VectorStoreService {
         vectorStore.delete(ids);
     }
 
-    /** 相似度检索 top-K，返回带分数的最相似原文块。 */
+    /** 相似度检索 top-K，返回带分数的最相似原文块；低于阈值的块会被丢弃。 */
     public List<SearchResult> search(String query, int topK) {
         SearchRequest request = SearchRequest.builder()
                 .query(query)
                 .topK(topK)
+                .similarityThreshold(similarityThreshold)
                 .build();
         List<Document> documents = vectorStore.similaritySearch(request);
 
@@ -74,7 +87,8 @@ public class VectorStoreService {
         for (Document doc : documents) {
             String sourceName = asString(doc.getMetadata().get("sourceName"));
             Integer index = asInt(doc.getMetadata().get("index"));
-            // SimpleVectorStore 返回的 getScore() 即余弦相似度（0~1，越大越相关）
+            // getScore() 是余弦相似度（0~1，越大越相关）。SimpleVectorStore 与
+            // pgvector（distance-type: COSINE_DISTANCE）返回的都是相似度而非距离。
             results.add(new SearchResult(doc.getText(), doc.getScore(), sourceName, index));
         }
         return results;

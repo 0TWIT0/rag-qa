@@ -2,6 +2,9 @@
 target/
 *.class
 
+# 前端构建产物（由 cd frontend && npm run build 生成，内容随源码变化，不要提交）
+src/main/resources/static/
+
 # IDE
 .idea/
 *.iml

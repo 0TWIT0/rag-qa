@@ -2,17 +2,17 @@ spring:
   application:
     name: rag-qa
 
-  # 数据源：凭据一律走环境变量，避免把密钥写进代码 / 提交到 Git。
-  # 未设置环境变量时使用下面的默认值（本地开发默认 root 无密码）。
+  # 数据源：阶段 6b 起统一用 PostgreSQL——文档表和 pgvector 向量表在同一个库里。
+  # 凭据一律走环境变量，避免把密码写进代码 / 提交到 Git。
   datasource:
-    url: ${DB_URL:jdbc:mysql://localhost:3306/rag_db?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=UTF-8&allowPublicKeyRetrieval=true}
-    username: ${DB_USERNAME:root}
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/rag_db}
+    username: ${DB_USERNAME:raguser}
     password: ${DB_PASSWORD:}
-    driver-class-name: com.mysql.cj.jdbc.Driver
+    driver-class-name: org.postgresql.Driver
 
   jpa:
     hibernate:
-      # 阶段 6 引入 Document 实体后改为 update，启动时自动建表 / 更新表结构。
+      # 启动时按实体自动建表 / 更新表结构。
       ddl-auto: update
     open-in-view: false
     show-sql: true
@@ -38,6 +38,23 @@ spring:
         options:
           model: Qwen/Qwen3-Embedding-0.6B
 
+    # 向量库：pgvector（阶段 6b）。自动配置会抓应用里的主数据源（也就是上面那个
+    # PostgreSQL），所以这里不需要再写一遍连接串——这正是「全项目一个库」的好处。
+    vectorstore:
+      pgvector:
+        # 必须与 Embedding 模型输出维度一致，Qwen3-Embedding-0.6B 是 1024 维。
+        # 配错会在启动或首次写入时报维度不匹配的错。
+        dimensions: 1024
+        # id 列类型。默认是 UUID，但我们的向量 id 用的是「文档id-块序号」这种文本
+        # （见 VectorStoreService），默认值会让插入报 Invalid UUID string。必须显式设成 TEXT。
+        id-type: TEXT
+        # 启动时自动执行 CREATE EXTENSION vector、建向量表、建索引。
+        initialize-schema: true
+        # HNSW 是近似最近邻索引，检索快、召回好；数据量很小时也可以设成 NONE。
+        index-type: HNSW
+        # 与 Embedding 的语义匹配：余弦距离，分数越大越相似（和之前 SimpleVectorStore 一致）。
+        distance-type: COSINE_DISTANCE
+
   # 上传文件大小限制（阶段 3 文档解析接口）
   servlet:
     multipart:
@@ -51,3 +68,8 @@ server:
 rag:
   chunk-size: 500
   chunk-overlap: 50
+  # 阶段 6：检索相似度阈值（0~1）。低于它的检索结果会被丢弃，这样「检索结果为空」
+  # 才真正等价于「没有相关内容」，上层的严格模式才有意义。
+  # 实测（Qwen3-Embedding-0.6B）：无关问题约 0.17，相关问题 0.54~0.67，故取中间值 0.35。
+  # 如果发现本该能回答的问题被拦成「资料库中没有找到相关信息」，把这个值调低。
+  similarity-threshold: 0.35

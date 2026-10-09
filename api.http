@@ -1,0 +1,58 @@
+### ===================================================================
+### RAG-QA 接口验收（IDEA HTTP Client）
+### 用法：点每个请求左边的绿色三角 ▶ 直接运行。
+### 环境变量可在文件顶部用 {{host}} 之类的写法统一管理，这里为简单起见写死。
+### ===================================================================
+
+### 1. 健康检查
+GET http://localhost:8080/api/health
+
+### 2. 上传文档：提取 → 切块 → 落库 PostgreSQL → 向量化入 pgvector
+###    成功后记下返回的 documentId，下面几个请求要用
+POST http://localhost:8080/api/documents/ingest
+Content-Type: multipart/form-data; boundary=WebAppBoundary
+
+--WebAppBoundary
+Content-Disposition: form-data; name="file"; filename="test.md"
+Content-Type: text/markdown
+
+< ./test.md
+--WebAppBoundary--
+
+### 3. 文档列表（摘要，不含全文）
+GET http://localhost:8080/api/documents
+
+### 4. 文档详情（含全文）——把 1 换成上一步拿到的 documentId
+GET http://localhost:8080/api/documents/1
+
+### 5. 相似度检索：直接看向量库里有没有东西、分数是否合理
+POST http://localhost:8080/api/search
+Content-Type: application/json
+
+{
+  "query": "如何安装",
+  "topK": 4
+}
+
+### 6. RAG 问答：检索 → 拼 prompt → 大模型带出处回答
+POST http://localhost:8080/api/rag/ask
+Content-Type: application/json
+
+{
+  "question": "文档里说的安装步骤是什么？",
+  "topK": 4
+}
+
+### 7. 严格模式验证：问一个文档里根本没有的内容，应返回
+###    「资料库中没有找到相关信息」且 sources 为空（不调用大模型，防幻觉）
+POST http://localhost:8080/api/rag/ask
+Content-Type: application/json
+
+{
+  "question": "公司的年假政策是怎样的？",
+  "topK": 4
+}
+
+### 8. 删除文档：应同时删掉 document 记录和 vector_store 里的向量块
+###    把 1 换成实际的 documentId
+DELETE http://localhost:8080/api/documents/1

@@ -7,13 +7,12 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
 
 /**
- * 已入库文档的元信息与全文（阶段 6 持久化到 MySQL）。
+ * 已入库文档的元信息与全文（阶段 6b 起持久化到 PostgreSQL）。
  *
- * <p>存全文是为了将来换 pgvector / 重建向量库时无需重新上传文件。</p>
+ * <p>存全文是为了重建向量库时无需重新上传文件。</p>
  */
 @Entity
 @Table(name = "document")
@@ -34,7 +33,10 @@ public class DocumentEntity {
 
     private int chunkCount;
 
-    @Lob
+    // 这里刻意不用 @Lob：Hibernate 6 在 PostgreSQL 上会把 @Lob String 映射成 oid
+    // （大对象），读写都得走额外的大对象 API，很别扭。text 是 PostgreSQL 原生的
+    // 变长字符串类型，等价于 MySQL 的 LONGTEXT。
+    @Column(columnDefinition = "text")
     private String content;
 
     private LocalDateTime createdAt;
